@@ -1,59 +1,36 @@
-FROM php:8.2-fpm
+# Stage 1 - Build Frontend (Vite)
+FROM node:18 AS frontend
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# Stage 2 - Backend (Laravel + PHP + Composer)
+FROM php:8.2-fpm AS backend
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    unzip \
-    zip \
-    libzip-dev \
-    libpng-dev \
-    libjpeg-dev \
-    libfreetype6-dev \
-    libonig-dev \
-    libxml2-dev \
-    libicu-dev \
-    libpq-dev \
-    default-mysql-client \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
-
-# PHP extensions required by Laravel + Livewire
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install \
-    pdo \
-    pdo_mysql \
-    mbstring \
-    zip \
-    exif \
-    pcntl \
-    bcmath \
-    intl \
-    gd \
-    xml
+    git curl unzip libpq-dev libonig-dev libzip-dev zip \
+    && docker-php-ext-install pdo pdo_mysql mbstring zip
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# Copy application files
+# Copy app files
 COPY . .
 
+# Copy built frontend from Stage 1
+COPY --from=frontend /app/public/dist ./public/dist
+
 # Install PHP dependencies
-RUN composer install \
-    --no-dev \
-    --prefer-dist \
-    --optimize-autoloader
+RUN composer install --no-dev --optimize-autoloader
 
-# Install frontend dependencies & build assets (Tailwind + Vite)
-RUN npm install && npm run build
-
-# Permissions for Laravel
-RUN chown -R www-data:www-data /var/www \
-    && chmod -R 775 storage bootstrap/cache
-
-EXPOSE 9000
+# Laravel setup
+RUN php artisan config:clear && \
+    php artisan route:clear && \
+    php artisan view:clear
 
 CMD ["php-fpm"]
